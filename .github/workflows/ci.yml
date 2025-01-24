@@ -40,5 +40,9 @@ jobs:
         with:
           files: |
             ${{ github.workspace }}/packages/*.deb
+          tag_name: rootless
+          name: Rootless
+          draft: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -2,13 +2,8 @@ name: ci
 
 on:
   push:
-    # branches:
-    #   - master
-    tags:
-      - "v*"
-  # pull_request:
-  #   branches:
-  #     - master
+    branches:
+      - '**'
   workflow_dispatch:
 
 jobs:

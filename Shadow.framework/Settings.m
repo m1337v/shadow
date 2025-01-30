@@ -8,7 +8,7 @@
 - (instancetype)init {
     if((self = [super init])) {
         defaultSettings = @{
-            @"Global_Enabled" : @(YES),
+            @"Global_Enabled" : @(NO),
             @"HK_Library" : @"fishhook",
             @"Hook_Filesystem" : @(YES),
             @"Hook_DynamicLibraries" : @(YES),

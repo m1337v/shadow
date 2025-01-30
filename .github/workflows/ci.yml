@@ -81,8 +81,10 @@ jobs:
 
       - name: Setup AltList
         run: |
-          git clone https://github.com/roothide/altlist vendor/AltList --depth 1
-          cd AltList && ./install_to_theos.sh && cd -
+          git clone https://github.com/roothide/AltList vendor/AltList --depth 1
+          cd vendor/AltList
+          ./install_to_theos.sh
+          cd -
 
       - name: Build Tweak (Roothide, Rootless, Rooted)
         run: |

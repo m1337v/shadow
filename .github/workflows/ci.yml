@@ -1,14 +1,9 @@
-name: ci
+name: CI
 
 on:
   push:
-    # branches:
-    #   - master
-    tags:
-      - "v*"
-  # pull_request:
-  #   branches:
-  #     - master
+    branches:
+      - 'roothide'
   workflow_dispatch:
 
 jobs:
@@ -22,29 +17,86 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Theos Setup
-        uses: Randomblock1/theos-action@v1
+      - name: Select Older Xcode Version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_14.2.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install Procursus
+        uses: dhinakg/procursus-action@main
+        with:
+          packages: ldid findutils sed coreutils make
+
+      - name: Setup Theos (Roothide)
+        run: |
+          git clone --recursive https://github.com/roothide/theos $GITHUB_WORKSPACE/theos
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+          export THEOS=$GITHUB_WORKSPACE/theos
+
+      - name: Install Missing XPC Headers
+        run: |
+          git clone https://github.com/realthunder/mac-headers --depth 1
+          mkdir -p $THEOS/include
+          cp -Rv mac-headers/usr/include/xpc $THEOS/include/
+
+      - name: Download iPhoneOS14.5 SDK
+        run: |
+          mkdir -p $THEOS/sdks
+          curl -L -o "$THEOS/sdks/iPhoneOS14.5.sdk.7z" \
+            https://github.com/m1337v/Opamine/releases/download/debug/iPhoneOS14.5.sdk.7z
+          7z x "$THEOS/sdks/iPhoneOS14.5.sdk.7z" -o"$THEOS/sdks"
+          rm "$THEOS/sdks/iPhoneOS14.5.sdk.7z"
+          ls "$THEOS/sdks"
+
+      - name: Download iPhoneOS16.5 SDK
+        run: |
+          mkdir -p "$THEOS/sdks"
+          curl -L -o "$THEOS/sdks/iPhoneOS16.5.sdk.7z" \
+            https://github.com/m1337v/Opamine/releases/download/debug/iPhoneOS16.5.sdk.7z
+          7z x "$THEOS/sdks/iPhoneOS16.5.sdk.7z" -o"$THEOS/sdks" -bb0 -bd -y
+          rm "$THEOS/sdks/iPhoneOS16.5.sdk.7z"
+          ls -l "$THEOS/sdks"
+
+      - name: Verify SDKs
+        run: |
+          echo "Listing SDKs:"
+          ls -l "$THEOS/sdks"
+
+      - name: Verify Preferences.framework Installation
+        run: |
+          if [ -d "$THEOS/sdks/iPhoneOS16.5.sdk/System/Library/PrivateFrameworks/Preferences.framework" ]; then
+            echo "Preferences.framework is installed."
+          else
+            echo "Preferences.framework is missing!"
+            exit 1
+          fi
+
+          # Optionally, list its contents for verification
+          ls -l "$THEOS/sdks/iPhoneOS16.5.sdk/System/Library/PrivateFrameworks/Preferences.framework"
 
       - name: Setup libSandy
         run: |
-          git clone https://github.com/realthunder/mac-headers --depth 1
-          mv mac-headers/usr/include/xpc $THEOS/include
-          git clone https://github.com/opa334/libSandy vendor/libSandy --depth 1
+          git clone https://github.com/roothide/libSandy vendor/libSandy --depth 1
           cd vendor/libSandy/ && ./install_to_theos.sh && cd -
 
       - name: Setup AltList
         run: |
-          git clone https://github.com/opa334/AltList --depth 1
+          git clone https://github.com/roothide/altlist vendor/AltList --depth 1
           cd AltList && ./install_to_theos.sh && cd -
 
-      - name: Build shadow
-        run: ./build.sh
+      - name: Build Tweak (Roothide, Rootless, Rooted)
+        run: |
+          chmod +x ./build.sh
+          ./build.sh
 
       - name: Release
         uses: softprops/action-gh-release@v1
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         with:
           files: |
-            ${{ github.workspace }}/packages/*.deb
+            ${{ github.workspace }}/build/*.deb
+          tag_name: roothide
+          name: Roothide Build
+          draft: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

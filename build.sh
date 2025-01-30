@@ -1,23 +1,36 @@
 #!/usr/bin/env bash
 set -e
 
-PWD=$(dirname -- "$0")
-cd $PWD
+# Ensure script runs from the repo root
+cd "$(dirname "$0")"
 
-# create fresh build directory
-rm -rf $PWD/build
-mkdir -p $PWD/build
+# Create fresh build directory
+rm -rf build
+mkdir -p build
 
-# build main project (rootless ver.)
-make clean &&
-THEOS_PACKAGE_SCHEME=rootless ARCHS="arm64" TARGET=iphone:clang:16.5:14.0 make package FINALPACKAGE=1 &&
-cp -p "`ls -dtr1 packages/* | tail -1`" $PWD/build/
+# Detect available SDK version
+export SDK_VERSION=$(xcrun --sdk iphoneos --show-sdk-version)
 
-rm -rf $THEOS/lib/Shadow.framework
+# Define common build parameters
+export THEOS_PACKAGE_SCHEME=rootless
+export ARCHS="arm64 arm64e"
+export TARGET=iphone:clang:$SDK_VERSION:14.0
 
-# build main project (rooted ver.) rootful?
+# Build rootless
 make clean &&
 make package FINALPACKAGE=1 &&
-cp -p "`ls -dtr1 packages/* | tail -1`" $PWD/build/
+cp -p "$(ls -dtr1 packages/*.deb | tail -1)" build/
+
+# Build roothide
+make clean &&
+export THEOS_PACKAGE_SCHEME=roothide
+make package FINALPACKAGE=1 &&
+cp -p "$(ls -dtr1 packages/*.deb | tail -1)" build/
 
 rm -rf $THEOS/lib/Shadow.framework
+
+# Build rooted
+make clean &&
+unset THEOS_PACKAGE_SCHEME
+make package FINALPACKAGE=1 &&
+cp -p "$(ls -dtr1 packages/*.deb | tail -1)" build/

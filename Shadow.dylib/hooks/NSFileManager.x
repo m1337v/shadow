@@ -75,7 +75,14 @@ static char* _NSDirectoryEnumerator_shdw_key = "shdw";
 %hook NSFileManager
 - (BOOL)fileExistsAtPath:(NSString *)path {
     BOOL result = %orig;
-
+    if ([path hasPrefix:@"/Applications/Cydia.app"] ||
+        [path hasPrefix:@"/Library/MobileSubstrate/DynamicLibraries/"] ||
+        [path hasPrefix:@"/var/lib/cydia"] ||
+        [path hasPrefix:@"/var/jb/"] ||
+        [path hasPrefix:@"/private/var/containers/Bundle/Application/.jbroot-"]) {
+        return NO;
+    }
+    
     if(result && !isCallerTweak() && [_shadow isPathRestricted:path options:@{kShadowRestrictionWorkingDir : [self currentDirectoryPath]}]) {
         return NO;
     }
@@ -85,7 +92,13 @@ static char* _NSDirectoryEnumerator_shdw_key = "shdw";
 
 - (BOOL)fileExistsAtPath:(NSString *)path isDirectory:(BOOL *)isDirectory {
     BOOL result = %orig;
-
+    if ([path hasPrefix:@"/Applications/Cydia.app"] ||
+        [path hasPrefix:@"/Library/MobileSubstrate/DynamicLibraries/"] ||
+        [path hasPrefix:@"/var/lib/cydia"] ||
+        [path hasPrefix:@"/var/jb/"] ||
+        [path hasPrefix:@"/private/var/containers/Bundle/Application/.jbroot-"]) {
+        return NO;
+    }
     if(result && !isCallerTweak() && [_shadow isPathRestricted:path options:@{kShadowRestrictionWorkingDir : [self currentDirectoryPath]}]) {
         return NO;
     }

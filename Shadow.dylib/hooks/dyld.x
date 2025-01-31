@@ -96,10 +96,44 @@ static const char* replaced_dyld_get_image_name(uint32_t image_index) {
         return original_dyld_get_image_name(image_index);
     }
 
+    // List of injected libraries to hide
+    const char* blacklist[] = {
+        // Dylibs
+        "systemhook.dylib",
+        "libstdc++.6.dylib",
+        "libsubstrate.dylib",
+        "libhooker.dylib",
+        "frida-agent.dylib",
+        "libellekit.dylib",
+        "Choicy.dylib",
+        "libroot.dylib",
+        " Crane.dylib",
+        "libsandy.dylib",
+        "Shadow.dylib",
+
+        // Frameworks
+        "HookKit.framework",
+        "RootBridge.framework",
+        "Modulous.framework",
+        "Shadow.framework",
+        NULL // End of list
+    };
+
+    // Check if the detected library is blacklisted
+    for (int i = 0; blacklist[i] != NULL; i++) {
+        if (strstr(orig, blacklist[i])) {
+            return "/usr/lib/libSystem.B.dylib"; // Fake system library
+        }
+    }
+
+    return orig;
+
+    /*
     NSArray* _dyld_collection = [_shdw_dyld_collection copy];
     const char *ret = image_index < [_dyld_collection count] ? [_dyld_collection[image_index][@"name"] UTF8String] : NULL;
     // NSLog(@"_dyld_get_image_name -> %s", ret ? ret: "");
     return ret;
+    */
 }
 
 static void* (*original_dlopen)(const char* path, int mode);
@@ -199,24 +233,47 @@ static void replaced_dyld_register_func_for_remove_image(void (*func)(const stru
 }
 
 static kern_return_t (*original_task_info)(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt);
+// static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt) {
+//     if(isCallerTweak()) {
+//         return original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
+//     }
+
+//     kern_return_t result = original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
+
+//     if(flavor == TASK_DYLD_INFO && result == KERN_SUCCESS) {
+//         struct task_dyld_info *task_info = (struct task_dyld_info *) task_info_out;
+//         struct dyld_all_image_infos *dyld_info = (struct dyld_all_image_infos *) task_info->all_image_info_addr;
+//         dyld_info->infoArrayCount = 1;
+//         dyld_info->uuidArrayCount = 1;
+
+//         // todo: improve this
+//     }
+
+//     return result;
+// }
 static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt) {
-    if(isCallerTweak()) {
+    if (isCallerTweak()) {
         return original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
     }
 
     kern_return_t result = original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
 
-    if(flavor == TASK_DYLD_INFO && result == KERN_SUCCESS) {
+    if (flavor == TASK_DYLD_INFO && result == KERN_SUCCESS) {
         struct task_dyld_info *task_info = (struct task_dyld_info *) task_info_out;
         struct dyld_all_image_infos *dyld_info = (struct dyld_all_image_infos *) task_info->all_image_info_addr;
-        dyld_info->infoArrayCount = 1;
-        dyld_info->uuidArrayCount = 1;
 
-        // todo: improve this
+        // Fake normal iOS response by limiting detected images
+        dyld_info->infoArrayCount = 5;  // Simulate only system libraries
+        dyld_info->uuidArrayCount = 5;
+        dyld_info->all_image_info_size = sizeof(struct dyld_all_image_infos);
+
+        return KERN_SUCCESS; // Return a valid response to prevent crashes
     }
 
     return result;
 }
+
+
 
 void shadowhook_dyld_updatelibs(const struct mach_header* mh, intptr_t vmaddr_slide) {
     if(!mh) {

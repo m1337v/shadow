@@ -103,7 +103,7 @@ static int replaced_sysctl(int *name, u_int namelen, void *oldp, size_t *oldlenp
 void shadowhook_mach(HKSubstitutor* hooks) {
     MSHookFunction(bootstrap_check_in, replaced_bootstrap_check_in, (void **) &original_bootstrap_check_in);
     MSHookFunction(bootstrap_look_up, replaced_bootstrap_look_up, (void **) &original_bootstrap_look_up);
-    MSHookFunction(bootstrap_register, replaced_bootstrap_register, (void **) &original_bootstrap_register);
+    // MSHookFunction(bootstrap_register, replaced_bootstrap_register, (void **) &original_bootstrap_register);
     MSHookFunction(task_for_pid, replaced_task_for_pid, (void **) &original_task_for_pid);
     MSHookFunction(mach_ports_lookup, replaced_mach_ports_lookup, (void **) &original_mach_ports_lookup);
     MSHookFunction(posix_spawn, replaced_posix_spawn, (void **) &original_posix_spawn);

@@ -96,6 +96,8 @@ static const char* replaced_dyld_get_image_name(uint32_t image_index) {
         return original_dyld_get_image_name(image_index);
     }
 
+    const char* original_name = original_dyld_get_image_name(image_index);
+    
     // List of injected libraries to hide
     const char* blacklist[] = {
         // Dylibs
@@ -121,12 +123,12 @@ static const char* replaced_dyld_get_image_name(uint32_t image_index) {
 
     // Check if the detected library is blacklisted
     for (int i = 0; blacklist[i] != NULL; i++) {
-        if (strstr(orig, blacklist[i])) {
+        if (strstr(original_name, blacklist[i])) {
             return "/usr/lib/libSystem.B.dylib"; // Fake system library
         }
     }
 
-    return orig;
+    return original_name;
 
     /*
     NSArray* _dyld_collection = [_shdw_dyld_collection copy];

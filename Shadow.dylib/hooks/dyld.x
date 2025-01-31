@@ -2,6 +2,8 @@
 #pragma clang diagnostic ignored "-Wframe-address"
 
 #import "hooks.h"
+#include <stdio.h>
+#include <string.h>
 
 static NSMutableArray<NSDictionary *>* _shdw_dyld_collection = nil;
 static NSMutableArray<NSValue *>* _shdw_dyld_add_image = nil;
@@ -10,6 +12,74 @@ static BOOL _shdw_dyld_error = NO;
 // static NSOperationQueue* _shdw_dyld_queue = nil;
 // NSMutableData* _shdw_dyld_task_dyld_info = nil;
 
+#undef isCallerTweak
+bool isCallerTweak() {
+    @synchronized(_shdw_dyld_collection) {
+        NSArray* dyld_collection = [_shdw_dyld_collection copy]; // Copy once before looping
+
+        void *retaddrs[] = {
+            __builtin_return_address(0),
+            __builtin_return_address(1),
+            __builtin_return_address(2),
+            __builtin_return_address(3),
+            __builtin_return_address(4),
+            __builtin_return_address(5),
+            __builtin_return_address(6),
+            __builtin_return_address(7),
+        };
+
+        for (int i = 0; i < 8; i++) {
+            void *addr = __builtin_extract_return_addr(retaddrs[i]);
+            if (!addr) continue;
+
+            if (![_shadow isAddrExternal:addr]) { // Address belongs to app
+                return false;
+            }
+
+            const char* image_path = dyld_image_path_containing_address(addr);
+            if (!image_path) continue;
+
+            for (NSString *imgPath in dyld_collection) {
+                if (!strcmp([imgPath UTF8String], image_path)) {
+                    return false; // Safe module
+                }
+            }
+
+            const char* blacklist[] = {
+                // Dylibs
+                "systemhook.dylib",
+                "libstdc++.6.dylib",
+                "libsubstrate.dylib",
+                "libhooker.dylib",
+                "frida-agent.dylib",
+                "libellekit.dylib",
+                "Choicy.dylib",
+                "libroot.dylib",
+                " Crane.dylib",
+                "libsandy.dylib",
+                "Shadow.dylib",
+                "libinjector.dylib", // RootHide injector
+
+                // Frameworks
+                "HookKit.framework",
+                "RootBridge.framework",
+                "Modulous.framework",
+                "Shadow.framework",
+                NULL // End of list
+            };
+
+            for (int j = 0; blacklist[j] != NULL; j++) {
+                if (strstr(image_path, blacklist[j])) {
+                    return true; // Address is from a tweak
+                }
+            }
+        }
+    }
+    return false;
+}
+
+
+/*
 // todo: maybe hook this private symbol
 // extern void call_funcs_for_add_image(struct mach_header *mh, unsigned long vmaddr_slide);
 #include <os/log.h>
@@ -58,15 +128,58 @@ bool isCallerTweak() {
     // }
     // return false;
 }
+*/
 
 static uint32_t (*original_dyld_image_count)();
+
+// static uint32_t replaced_dyld_image_count() {
+//     if(isCallerTweak()) {
+//         return original_dyld_image_count();
+//     }
+
+//     NSArray* _dyld_collection = [_shdw_dyld_collection copy];
+//     return [_dyld_collection count];
+// }
+
 static uint32_t replaced_dyld_image_count() {
-    if(isCallerTweak()) {
-        return original_dyld_image_count();
+    uint32_t count = original_dyld_image_count();
+    NSMutableSet *blacklistSet = [NSMutableSet setWithObjects:
+        "systemhook.dylib",
+        "libstdc++.6.dylib",
+        "libsubstrate.dylib",
+        "libhooker.dylib",
+        "frida-agent.dylib",
+        "libellekit.dylib",
+        "Choicy.dylib",
+        "libroot.dylib",
+        "Crane.dylib",
+        "libsandy.dylib",
+        "Shadow.dylib",
+        "libinjector.dylib", // RootHide injector
+        "HookKit.framework",
+        "RootBridge.framework",
+        "Modulous.framework",
+        "Shadow.framework",
+        nil
+    ];
+
+    int hidden_dylibs = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const char* image_name = original_dyld_get_image_name(i);
+        if (image_name && [blacklistSet containsObject:@(image_name)]) {
+            hidden_dylibs++;
+        }
     }
 
-    NSArray* _dyld_collection = [_shdw_dyld_collection copy];
-    return [_dyld_collection count];
+    return count - hidden_dylibs;
+}
+
+
+void hook_dyld_image_count() {
+    struct rebinding rebindings[] = {
+        {"_dyld_image_count", (void*)replaced_dyld_image_count, (void**)&original_dyld_image_count},
+    };
+    rebind_symbols(rebindings, 1);
 }
 
 static const struct mach_header* (*original_dyld_get_image_header)(uint32_t image_index);
@@ -90,13 +203,16 @@ static intptr_t replaced_dyld_get_image_vmaddr_slide(uint32_t image_index) {
 }
 
 static const char* (*original_dyld_get_image_name)(uint32_t image_index);
+
 static const char* replaced_dyld_get_image_name(uint32_t image_index) {
     // NSLog(@"_dyld_get_image_name from %p (%d): %@", __builtin_extract_return_addr(__builtin_return_address(0)), isCallerTweak(), NSThread.callStackSymbols);
+    const char* original_name = original_dyld_get_image_name(image_index);
+
     if(isCallerTweak()) {
-        return original_dyld_get_image_name(image_index);
+        return original_name;
     }
 
-    const char* original_name = original_dyld_get_image_name(image_index);
+    if (!original_name) return NULL;
 
     // List of injected libraries to hide
     const char* blacklist[] = {
@@ -112,6 +228,7 @@ static const char* replaced_dyld_get_image_name(uint32_t image_index) {
         " Crane.dylib",
         "libsandy.dylib",
         "Shadow.dylib",
+        "libinjector.dylib", // RootHide injector
 
         // Frameworks
         "HookKit.framework",
@@ -136,6 +253,13 @@ static const char* replaced_dyld_get_image_name(uint32_t image_index) {
     // NSLog(@"_dyld_get_image_name -> %s", ret ? ret: "");
     return ret;
     */
+}
+
+void hook_dyld_image_name() {
+    struct rebinding rebindings[] = {
+        {"_dyld_get_image_name", (void*)replaced_dyld_get_image_name, (void**)&original_dyld_get_image_name},
+    };
+    rebind_symbols(rebindings, 1);
 }
 
 static void* (*original_dlopen)(const char* path, int mode);
@@ -253,6 +377,29 @@ static kern_return_t (*original_task_info)(task_name_t target_task, task_flavor_
 
 //     return result;
 // }
+
+// static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt) {
+//     if (isCallerTweak()) {
+//         return original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
+//     }
+
+//     kern_return_t result = original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
+
+//     if (flavor == TASK_DYLD_INFO && result == KERN_SUCCESS) {
+//         struct task_dyld_info *task_info = (struct task_dyld_info *) task_info_out;
+//         struct dyld_all_image_infos *dyld_info = (struct dyld_all_image_infos *) task_info->all_image_info_addr;
+
+//         // Fake normal iOS response by limiting detected images
+//         dyld_info->infoArrayCount = 5;  // Simulate only system libraries
+//         dyld_info->uuidArrayCount = 5;
+//         // dyld_info->all_image_info_size = sizeof(struct dyld_all_image_infos);
+
+//         return KERN_SUCCESS; // Return a valid response to prevent crashes
+//     }
+
+//     return result;
+// }
+
 static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt) {
     if (isCallerTweak()) {
         return original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
@@ -267,15 +414,18 @@ static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t f
         // Fake normal iOS response by limiting detected images
         dyld_info->infoArrayCount = 5;  // Simulate only system libraries
         dyld_info->uuidArrayCount = 5;
-        // dyld_info->all_image_info_size = sizeof(struct dyld_all_image_infos);
-
         return KERN_SUCCESS; // Return a valid response to prevent crashes
     }
 
     return result;
 }
 
-
+void hook_task_info() {
+    struct rebinding rebindings[] = {
+        {"task_info", (void*)replaced_task_info, (void**)&original_task_info},
+    };
+    rebind_symbols(rebindings, 1);
+}
 
 void shadowhook_dyld_updatelibs(const struct mach_header* mh, intptr_t vmaddr_slide) {
     if(!mh) {
@@ -379,6 +529,47 @@ static void* replaced_dlsym(void* handle, const char* symbol) {
 }
 
 static int (*original_dladdr)(const void* addr, Dl_info* info);
+
+static int replaced_dladdr(const void* addr, Dl_info* info) {
+    if (isCallerTweak()) {
+        return original_dladdr(addr, info);
+    }
+
+    int result = original_dladdr(addr, info);
+    if (result && info) {
+        static NSMutableSet *blacklistSet = nil;
+        if (!blacklistSet) {
+            blacklistSet = [NSMutableSet setWithObjects:
+                "systemhook.dylib",
+                "libstdc++.6.dylib",
+                "libsubstrate.dylib",
+                "libhooker.dylib",
+                "frida-agent.dylib",
+                "libellekit.dylib",
+                "Choicy.dylib",
+                "libroot.dylib",
+                "Crane.dylib",
+                "libsandy.dylib",
+                "Shadow.dylib",
+                "libinjector.dylib",
+                "HookKit.framework",
+                "RootBridge.framework",
+                "Modulous.framework",
+                "Shadow.framework",
+                nil
+            ];
+        }
+
+        if ([blacklistSet containsObject:@(info->dli_fname)]) {
+            info->dli_fname = "/usr/lib/libSystem.B.dylib";
+            return 1;
+        }
+    }
+
+    return result;
+}
+
+/*
 static int replaced_dladdr(const void* addr, Dl_info* info) {
     if(isCallerTweak()) {
         return original_dladdr(addr, info);
@@ -406,6 +597,57 @@ static int replaced_dladdr(const void* addr, Dl_info* info) {
 
     return result;
 }
+*/
+
+// Original function pointer
+static int (*orig_dladdr)(const void* addr, Dl_info* info);
+
+// Hooked dladdr function
+int hooked_dladdr(const void* addr, Dl_info* info) {
+    int result = orig_dladdr(addr, info);
+    if (result && info) {
+        // List of injected libraries to hide
+        const char* blacklist[] = {
+        // Dylibs
+        "systemhook.dylib",
+        "libstdc++.6.dylib",
+        "libsubstrate.dylib",
+        "libhooker.dylib",
+        "frida-agent.dylib",
+        "libellekit.dylib",
+        "Choicy.dylib",
+        "libroot.dylib",
+        " Crane.dylib",
+        "libsandy.dylib",
+        "Shadow.dylib",
+        "libinjector.dylib", // RootHide injector
+
+        // Frameworks
+        "HookKit.framework",
+        "RootBridge.framework",
+        "Modulous.framework",
+        "Shadow.framework",
+        NULL // End of list
+    };
+
+        for (int i = 0; blacklist[i] != NULL; i++) {
+            if (strstr(info->dli_fname, blacklist[i])) {
+                // Fake response, point to a system library instead
+                info->dli_fname = "/usr/lib/libSystem.B.dylib";
+                return 1;
+            }
+        }
+    }
+    return result;
+}
+
+// Apply fishhook to override dladdr
+void hook_dladdr() {
+    struct rebinding rebindings[] = {
+        {"dladdr", (void*)hooked_dladdr, (void**)&orig_dladdr},
+    };
+    rebind_symbols(rebindings, 1);
+}
 
 void shadowhook_dyld(HKSubstitutor* hooks) {
     _shdw_dyld_collection = [NSMutableArray new];
@@ -414,6 +656,11 @@ void shadowhook_dyld(HKSubstitutor* hooks) {
 
     _dyld_register_func_for_add_image(shadowhook_dyld_updatelibs);
     _dyld_register_func_for_remove_image(shadowhook_dyld_updatelibs_r);
+
+    hook_dladdr();
+    hook_dyld_image_name();
+    hook_dyld_image_count();
+    hook_task_info();
 
     MSHookFunction(_dyld_get_image_name, replaced_dyld_get_image_name, (void **) &original_dyld_get_image_name);
 

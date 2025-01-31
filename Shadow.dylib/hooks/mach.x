@@ -42,12 +42,12 @@ static kern_return_t replaced_bootstrap_look_up(mach_port_t bp, const char* serv
 
 // Hook `bootstrap_register()` - Blocks registering of new jailbreak services
 static kern_return_t (*original_bootstrap_register)(mach_port_t bp, const char* service_name, mach_port_t sp);
-static kern_return_t replaced_bootstrap_register(mach_port_t bp, const char* service_name, mach_port_t sp) {
-    if (!isCallerTweak() && service_name && isRestrictedService(service_name)) {
-        return BOOTSTRAP_NOT_PRIVILEGED;
-    }
-    return original_bootstrap_register(bp, service_name, sp);
-}
+// static kern_return_t replaced_bootstrap_register(mach_port_t bp, const char* service_name, mach_port_t sp) {
+//     if (!isCallerTweak() && service_name && isRestrictedService(service_name)) {
+//         return BOOTSTRAP_NOT_PRIVILEGED;
+//     }
+//     return original_bootstrap_register(bp, service_name, sp);
+// }
 
 // Hook `task_for_pid()` - Prevents direct process lookup (stealthier implementation)
 static kern_return_t (*original_task_for_pid)(mach_port_t task, pid_t pid, mach_port_t *target_task);

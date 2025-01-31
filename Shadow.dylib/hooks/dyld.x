@@ -97,7 +97,7 @@ static const char* replaced_dyld_get_image_name(uint32_t image_index) {
     }
 
     const char* original_name = original_dyld_get_image_name(image_index);
-    
+
     // List of injected libraries to hide
     const char* blacklist[] = {
         // Dylibs
@@ -267,7 +267,7 @@ static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t f
         // Fake normal iOS response by limiting detected images
         dyld_info->infoArrayCount = 5;  // Simulate only system libraries
         dyld_info->uuidArrayCount = 5;
-        dyld_info->all_image_info_size = sizeof(struct dyld_all_image_infos);
+        // dyld_info->all_image_info_size = sizeof(struct dyld_all_image_infos);
 
         return KERN_SUCCESS; // Return a valid response to prevent crashes
     }

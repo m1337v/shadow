@@ -399,7 +399,6 @@
 - (bool)jailbroken {
     return false;
 }
-- (BOOL)jailbroken { return NO; }
 %end
 
 %hook jailBrokenJudge
@@ -476,20 +475,6 @@
 
 %hook ISDeviceInfoService
 - (bool)isJailbroken { return false; }
-%end
-
-%hook ZDetection
-+ (bool)isZDetectionAvailable {
-    return false;
-}
-
-+ (bool)isDebugged {
-    return false;
-}
-
-+ (bool)isRootedOrJailbroken {
-    return false;
-}
 %end
 
 %hook ThreatChecks
@@ -592,7 +577,6 @@
 
 %hook JailMonkey
 - (BOOL)canMockLocation { return NO; }
-- (bool)canMockLocation { return false; }
 %end
 
 %hook iOSSecuritySuite

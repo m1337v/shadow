@@ -47,12 +47,10 @@
     // NSLog(@"[+] DTTJailbreak");
     return NO;
 }
-+ (bool)isJailbroken { return false; }
 %end
 
 %hook FlurryUtil
 - (BOOL)deviceIsjailbroken { return NO; }
-- (bool)deviceIsjailbroken { return false; }
 %end
 
 %hook STKDevice
@@ -70,7 +68,9 @@
 
 %hook IOSSecuritySuite
 + (BOOL)amIJailbroken { return NO; }
-+ (bool)amIJailbroken { return false; }
++ (BOOL)isDebugged { return NO; }
++ (BOOL)amIDebugged { return NO; }
++ (BOOL)amIRunInEmulator { return NO; }
 %end
 
 %hook ANSMetadata
@@ -88,39 +88,53 @@
     return NO;
 }
 
-+ (bool)isJailbrokenWithSkipAdvancedJailbreakValidation:(bool)a {
-    return false;
-}
 + (BOOL)isJailbrokenWithSkipAdvancedJailbreakValidation:(BOOL)a { 
     return NO; 
 }
 %end
 
 %hook AppsflyerLib
-+ (bool)skipAdvancedJailbreakValidation {
-    return true;
-}
-+ (BOOL)skipAdvancedJailbreakValidation {
+- (BOOL)skipAdvancedJailbreakValidation {
     return YES;
 }
 
-+ (void)setSkipAdvancedJailbreakValidation:(bool)a { 
-    %orig(true);
-}
-+ (void)setSkipAdvancedJailbreakValidation:(BOOL)a { 
+- (void)setSkipAdvancedJailbreakValidation:(BOOL)a { 
     %orig(YES);
 }
+
+- (BOOL)isEmulator { return NO; }
+- (BOOL)isRunningOnVirtualMachine { return NO; }
+%end
+
+%hook AppsFlyerAttribution
++ (BOOL)isJailBroken { return NO; }
++ (BOOL)deviceIsCompromised { return NO; }
++ (BOOL)isDeviceRooted { return NO; }
 %end
 
 %hook AFSDKChecksum
-- (id)calculateV2valueWithTimestamp:(id)timestamp uid:(id)uid systemVersion:(id)systemVersion firstLaunchDate:(id)firstLaunchDate AFSDKVersion:(id)AFSDKVersion isSimulator:(bool)isSimulator isDevBuild:(bool)isDevBuild isJailbroken:(bool)isJailbroken isCounterValid:(bool)isCounterValid isDebuggerAttached:(bool)isDebuggerAttached {
-    return %orig(timestamp, uid, systemVersion, firstLaunchDate, AFSDKVersion, false, false, false, true, false);
+- (id)calculateV2valueWithTimestamp:(id)timestamp 
+                                uid:(id)uid 
+                      systemVersion:(id)systemVersion 
+                    firstLaunchDate:(id)firstLaunchDate 
+                      AFSDKVersion:(id)AFSDKVersion 
+                        isSimulator:(BOOL)isSimulator 
+                        isDevBuild:(BOOL)isDevBuild 
+                       isJailbroken:(BOOL)isJailbroken 
+                    isCounterValid:(BOOL)isCounterValid 
+               isDebuggerAttached:(BOOL)isDebuggerAttached {
+    return %orig(timestamp, uid, systemVersion, firstLaunchDate, AFSDKVersion, NO, NO, NO, YES, NO);
 }
 
-- (id)calculateV2SanityFlagsWithIsSimulator:(bool)isSimulator isDevBuild:(bool)isDevBuild isJailbroken:(bool)isJailbroken isCounterValid:(bool)isCounterValid isDebuggerAttached:(bool)isDebuggerAttached {
-    return %orig(false, false, false, true, false);
+- (id)calculateV2SanityFlagsWithIsSimulator:(BOOL)isSimulator 
+                                isDevBuild:(BOOL)isDevBuild 
+                               isJailbroken:(BOOL)isJailbroken 
+                            isCounterValid:(BOOL)isCounterValid 
+                       isDebuggerAttached:(BOOL)isDebuggerAttached {
+    return %orig(NO, NO, NO, YES, NO);
 }
 %end
+
 
 %hook jailBreak
 + (bool)isJailBreak {
@@ -130,8 +144,14 @@
 
 %hook BugsnagDevice
 - (BOOL)jailbroken { return NO; }
-- (bool)jailbroken { return false; }
 %end
+
+%hook BugsnagSessionTracker
+- (BOOL)isJailbroken { return NO; }
+- (BOOL)hasModifiedSystemFiles { return NO; }
+- (BOOL)isDeviceTampered { return NO; }
+%end
+
 
 %hook METATerminationReporterTerminationReport
 - (BOOL)isJailbroken { return NO; }
@@ -175,6 +195,7 @@
 
 %hook PAGDeviceHelper
 - (bool)bu_isJailBroken { return false; }
+- (BOOL)isDeviceCompromised { return NO; }
 %end
 
 %hook CPWRDeviceInfo
@@ -238,7 +259,10 @@
 %hook BLYDevice
 + (BOOL)isJailBreak { return NO; }
 - (BOOL)isJailbroken { return NO; }
-- (unsigned long)jailbrokenStatus { return 0; }
+// - (unsigned long)jailbrokenStatus { return 0; }
+- (BOOL)isRooted { return NO; }
+- (BOOL)isTampered { return NO; }
+- (BOOL)isDebugged { return NO; }
 %end
 
 %hook MobClick
@@ -497,6 +521,21 @@
 // }
 // %end
 
+%hook SecurityCheckHandler
+- (BOOL)isTampered { return NO; }
+- (BOOL)isSignatureValid { return YES; }
+- (BOOL)isDeviceTrusted { return YES; }
+%end
+
+
+%hook ZDetection
++ (BOOL)isRootedOrJailbroken { return NO; }
++ (BOOL)isDebugged { return NO; }
++ (BOOL)isCodeInjected { return NO; }
++ (BOOL)isMalwareDetected { return NO; }
+%end
+
+
 %hook TZSKPaymentParamsTool
 + (BOOL)detectCurrentDeviceIsJailbroken {
     return NO;
@@ -511,7 +550,9 @@
 
 %hook JailMonkey
 + (BOOL)isJailBroken { return NO; }
-+ (bool)isJailBroken { return false; }
++ (BOOL)isDebugged { return NO; }
++ (BOOL)hasCydia { return NO; }
++ (BOOL)canViolateSandbox { return NO; }
 %end
 
 %hook AMA_JailbreakCheck
@@ -521,69 +562,78 @@
 %end
 
 %hook YMM_YX_SSJailbreakCheck
-- (BOOL)isProcessInfoAvailable { return NO; }
-- (int)filesExistCheck { return 0; }
-- (int)cydiaCheck { return 0; }
-- (int)isJailbroken { return 0; }
-- (BOOL)isJailbroken { return NO; }
-- (bool)isJailbroken { return false; }
-- (int)plistCheck { return 0; }
-- (int)symbolicLinksCheck { return 0; }
-- (int)processesCheck { return 0; }
-- (int)systemCheck { return 0; }
-- (id)runningProcesses { return nil; }
++ (BOOL)isProcessInfoAvailable { return NO; }
++ (int)filesExistCheck { return 0; }
++ (int)cydiaCheck { return 0; }
++ (int)isJailbroken { return 0; }
++ (int)plistCheck { return 0; }
++ (int)symbolicLinksCheck { return 0; }
++ (int)processesCheck { return 0; }
++ (int)systemCheck { return 0; }
++ (id)runningProcesses { return nil; }
 %end
+
+%hook AppdomeSecurity
++ (BOOL)isDeviceCompromised { return NO; }
++ (BOOL)isRunningOnEmulator { return NO; }
++ (BOOL)isTampered { return NO; }
++ (BOOL)isCodeInjected { return NO; }
+%end
+
+
 %end
 
 %group shadowhook_VPNCheck
 
-%hook JailMonkey
-+ (BOOL)canMockLocation { return NO; }
-+ (bool)canMockLocation { return false; }
+%hook ISDeviceInfoService
++ (BOOL)isVPNEnabled { return NO; }
 %end
+
+
+%hook JailMonkey
+- (BOOL)canMockLocation { return NO; }
+- (bool)canMockLocation { return false; }
+%end
+
+%hook iOSSecuritySuite
+- (BOOL)isProxyEnabled { return NO; }
+%end
+
 
 %hook VGRTCPeerConnectionFactoryOptions
 - (BOOL)ignoreVPNNetworkAdapter { return YES; }
-- (bool)ignoreVPNNetworkAdapter { return true; }
 - (void)setIgnoreVPNNetworkAdapter:(BOOL)a { 
     %orig(YES);
-}
-- (void)setIgnoreVPNNetworkAdapter:(bool)a { 
-    %orig(true);
 }
 %end
 
 %hook AppsFlyerUtils
 + (BOOL)isVPNConnected { return NO; }
-+ (bool)isVPNConnected { return false; }
-+ (BOOL)VPNCollectionEnabled { return NO; }
-+ (bool)VPNCollectionEnabled { return false; }
-+ (void)setVPNCollectionEnabled:(BOOL)a { 
+- (BOOL)VPNCollectionEnabled { return NO; }
+- (void)setVPNCollectionEnabled:(BOOL)a { 
     %orig(NO);
-}
-+ (void)setVPNCollectionEnabled:(bool)a { 
-    %orig(false);
 }
 %end
 
+%hook AppsFlyerLib
++ (BOOL)isProxyEnabled { return NO; }
+%end
+
+
 %hook METANetworkReachabilityMonitor
 - (BOOL)usingVPN { return NO; }
-- (bool)usingVPN { return false; }
 %end
 
 %hook FBSCNReachabilityMonitor
 - (BOOL)connectedToVPN { return NO; }
-- (bool)connectedToVPN { return false; }
 %end
 
 %hook FBReachabilityAnnouncer
 - (BOOL)connectedToVPN { return NO; }
-- (bool)connectedToVPN { return false; }
 %end
 
 %hook FBNWPathMonitor
 - (BOOL)connectedToVPN { return NO; }
-- (bool)connectedToVPN { return false; }
 %end
 %end
 
@@ -591,14 +641,9 @@
 
 %hook BMGeoLocation
 - (BOOL)hasIsMocked { return NO; }
-- (bool)hasIsMocked { return false; }
 - (BOOL)isMocked { return NO; }
-- (bool)isMocked { return false; }
 - (void)setIsMocked:(BOOL)a { 
     %orig(NO);
-}
-- (void)setIsMocked:(bool)a { 
-    %orig(false);
 }
 %end
 
@@ -611,9 +656,6 @@
 %hook USRVInitializeStateCreate
 - (void)setIsMocked:(BOOL)a { 
     %orig(NO);
-}
-- (void)setIsMocked:(bool)a { 
-    %orig(false);
 }
 %end
 

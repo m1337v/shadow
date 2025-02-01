@@ -22,9 +22,10 @@ static uint32_t (*original_dyld_image_count)(void);
 static const char* (*original_dyld_get_image_name)(uint32_t image_index);
 static const struct mach_header* (*original_dyld_get_image_header)(uint32_t image_index);
 static intptr_t (*original_dyld_get_image_vmaddr_slide)(uint32_t image_index);
-static void (*original_dyld_register_func_for_add_image)(void (*func)(const struct mach_header* mh, intptr_t vmaddr_slide));
-static void (*original_dyld_register_func_for_remove_image)(void (*func)(const struct mach_header* mh, intptr_t vmaddr_slide));
-static kern_return_t (*original_task_info)(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt);
+static void (*original_dyld_register_func_for_add_image)(void (*func)(const struct mach_header*, intptr_t));
+static void (*original_dyld_register_func_for_remove_image)(void (*func)(const struct mach_header*, intptr_t));
+static kern_return_t (*original_task_info)(task_name_t target_task, task_flavor_t flavor,
+                                           task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt);
 static void* (*original_dlopen)(const char* path, int mode);
 static void* (*original_dlopen_internal)(const char* path, int mode, void* caller);
 static bool (*original_dlopen_preflight)(const char* path);
@@ -41,8 +42,7 @@ static int (*orig_dladdr)(const void* addr, Dl_info* info);
 #undef isCallerTweak
 bool isCallerTweak() {
     @synchronized(_shdw_dyld_collection) {
-        NSArray* dyld_collection = [_shdw_dyld_collection copy]; // Copy once before looping
-
+        NSArray* dyld_collection = [_shdw_dyld_collection copy];
         void *retaddrs[] = {
             __builtin_return_address(0),
             __builtin_return_address(1),
@@ -53,26 +53,19 @@ bool isCallerTweak() {
             __builtin_return_address(6),
             __builtin_return_address(7),
         };
-
         for (int i = 0; i < 8; i++) {
             void *addr = __builtin_extract_return_addr(retaddrs[i]);
             if (!addr) continue;
-
-            if (![_shadow isAddrExternal:addr]) { // Address belongs to app
+            if (![_shadow isAddrExternal:addr]) {
                 return false;
             }
-
             const char* image_path = dyld_image_path_containing_address(addr);
             if (!image_path) continue;
-
-            // Compare with safe modules in dyld_collection
             for (NSString *imgPath in dyld_collection) {
                 if (!strcmp([imgPath UTF8String], image_path)) {
-                    return false; // Safe module
+                    return false;
                 }
             }
-
-            // List of known tweak libraries/frameworks (if any address comes from one, return YES)
             const char* blacklist[] = {
                 "systemhook.dylib",
                 "libstdc++.6.dylib",
@@ -92,10 +85,9 @@ bool isCallerTweak() {
                 "Shadow.framework",
                 NULL
             };
-
             for (int j = 0; blacklist[j] != NULL; j++) {
                 if (strstr(image_path, blacklist[j])) {
-                    return true; // Address is from a tweak
+                    return true;
                 }
             }
         }
@@ -107,29 +99,14 @@ bool isCallerTweak() {
 //------------------------------------------------------------------------------
 #pragma mark - dyld Hook Functions
 
-// Filter out blacklisted dylibs when counting images.
 static uint32_t replaced_dyld_image_count(void) {
     uint32_t count = original_dyld_image_count();
     NSMutableSet *blacklistSet = [NSMutableSet setWithObjects:
-        @"systemhook.dylib",
-        @"libstdc++.6.dylib",
-        @"libsubstrate.dylib",
-        @"libhooker.dylib",
-        @"frida-agent.dylib",
-        @"libellekit.dylib",
-        @"Choicy.dylib",
-        @"libroot.dylib",
-        @"Crane.dylib",
-        @"libsandy.dylib",
-        @"Shadow.dylib",
-        @"libinjector.dylib",
-        @"HookKit.framework",
-        @"RootBridge.framework",
-        @"Modulous.framework",
-        @"Shadow.framework",
-        nil
-    ];
-
+        @"systemhook.dylib", @"libstdc++.6.dylib", @"libsubstrate.dylib",
+        @"libhooker.dylib", @"frida-agent.dylib", @"libellekit.dylib",
+        @"Choicy.dylib", @"libroot.dylib", @"Crane.dylib", @"libsandy.dylib",
+        @"Shadow.dylib", @"libinjector.dylib", @"HookKit.framework",
+        @"RootBridge.framework", @"Modulous.framework", @"Shadow.framework", nil];
     int hidden_dylibs = 0;
     for (uint32_t i = 0; i < count; i++) {
         const char* image_name = original_dyld_get_image_name(i);
@@ -143,7 +120,6 @@ static uint32_t replaced_dyld_image_count(void) {
     return count - hidden_dylibs;
 }
 
-// Return a safe mach_header for the image.
 static const struct mach_header* replaced_dyld_get_image_header(uint32_t image_index) {
     if (isCallerTweak()) {
         return original_dyld_get_image_header(image_index);
@@ -155,7 +131,6 @@ static const struct mach_header* replaced_dyld_get_image_header(uint32_t image_i
     return NULL;
 }
 
-// Return the slide for a given image.
 static intptr_t replaced_dyld_get_image_vmaddr_slide(uint32_t image_index) {
     if (isCallerTweak()) {
         return original_dyld_get_image_vmaddr_slide(image_index);
@@ -167,44 +142,69 @@ static intptr_t replaced_dyld_get_image_vmaddr_slide(uint32_t image_index) {
     return 0;
 }
 
-// Replace the dyld image name function so that blacklisted libraries are faked.
 static const char* replaced_dyld_get_image_name(uint32_t image_index) {
     if (!original_dyld_get_image_name) {
-        return NULL; // Prevent crash
+        return NULL;
     }
     const char* original_name = original_dyld_get_image_name(image_index);
     if (isCallerTweak()) {
         return original_name;
     }
     if (!original_name) return NULL;
-
     const char* blacklist[] = {
-        "systemhook.dylib",
-        "libstdc++.6.dylib",
-        "libsubstrate.dylib",
-        "libhooker.dylib",
-        "frida-agent.dylib",
-        "libellekit.dylib",
-        "Choicy.dylib",
-        "libroot.dylib",
-        "Crane.dylib",
-        "libsandy.dylib",
-        "Shadow.dylib",
-        "libinjector.dylib",
-        "HookKit.framework",
-        "RootBridge.framework",
-        "Modulous.framework",
-        "Shadow.framework",
-        NULL
+        "systemhook.dylib", "libstdc++.6.dylib", "libsubstrate.dylib",
+        "libhooker.dylib", "frida-agent.dylib", "libellekit.dylib",
+        "Choicy.dylib", "libroot.dylib", "Crane.dylib", "libsandy.dylib",
+        "Shadow.dylib", "libinjector.dylib", "HookKit.framework",
+        "RootBridge.framework", "Modulous.framework", "Shadow.framework", NULL
     };
-
     for (int i = 0; blacklist[i] != NULL; i++) {
         if (strstr(original_name, blacklist[i])) {
-            return "/usr/lib/libSystem.B.dylib"; // Fake system library
+            return "/usr/lib/libSystem.B.dylib";
         }
     }
     return original_name;
 }
+
+void hook_dyld_image_name() {
+    struct rebinding rebindings[] = {
+        {"_dyld_get_image_name", (void*)replaced_dyld_get_image_name, (void**)&original_dyld_get_image_name},
+    };
+    rebind_symbols(rebindings, 1);
+}
+
+void hook_dyld_image_count() {
+    struct rebinding rebindings[] = {
+        {"_dyld_image_count", (void*)replaced_dyld_image_count, (void**)&original_dyld_image_count},
+    };
+    rebind_symbols(rebindings, 1);
+}
+
+
+//------------------------------------------------------------------------------
+#pragma mark - dyld Register Functions
+
+static void replaced_dyld_register_func_for_add_image(void (*func)(const struct mach_header*, intptr_t)) {
+    if (isCallerTweak() || !func) {
+        return original_dyld_register_func_for_add_image(func);
+    }
+    [_shdw_dyld_add_image addObject:[NSValue valueWithPointer:func]];
+    NSArray* dyld_collection = [_shdw_dyld_collection copy];
+    if(dyld_collection) {
+        for(NSDictionary* dylib in dyld_collection) {
+            func((struct mach_header *)[dylib[@"mach_header"] pointerValue],
+                 (intptr_t)[dylib[@"slide"] pointerValue]);
+        }
+    }
+}
+
+static void replaced_dyld_register_func_for_remove_image(void (*func)(const struct mach_header*, intptr_t)) {
+    if (isCallerTweak() || !func) {
+        return original_dyld_register_func_for_remove_image(func);
+    }
+    [_shdw_dyld_remove_image addObject:[NSValue valueWithPointer:func]];
+}
+
 
 //------------------------------------------------------------------------------
 #pragma mark - dlopen / dlsym / dlerror Hooks
@@ -256,7 +256,6 @@ static bool replaced_dlopen_preflight(const char* path) {
     if (path[0] != '/') {
         if (![_shadow isPathRestricted:@(path) options:@{
             kShadowRestrictionWorkingDir : @"/usr/lib",
-            kShadowRestrictionWorkingDir : @"/usr/lib",
             kShadowRestrictionFileExtension : @"dylib"
         }]) {
             return original_dlopen_preflight(path);
@@ -296,29 +295,15 @@ static void* replaced_dlsym(void* handle, const char* symbol) {
 //------------------------------------------------------------------------------
 #pragma mark - dladdr Hook (using fishhook)
 
-// Here we use fishhook to override dladdr.
-// (If you prefer a MobileSubstrate hook, you could remove hook_dladdr() and use the alternative below.)
 int hooked_dladdr(const void* addr, Dl_info* info) {
     int result = orig_dladdr(addr, info);
     if (result && info && info->dli_fname) {
         const char* blacklist[] = {
-            "systemhook.dylib",
-            "libstdc++.6.dylib",
-            "libsubstrate.dylib",
-            "libhooker.dylib",
-            "frida-agent.dylib",
-            "libellekit.dylib",
-            "Choicy.dylib",
-            "libroot.dylib",
-            "Crane.dylib",
-            "libsandy.dylib",
-            "Shadow.dylib",
-            "libinjector.dylib",
-            "HookKit.framework",
-            "RootBridge.framework",
-            "Modulous.framework",
-            "Shadow.framework",
-            NULL
+            "systemhook.dylib", "libstdc++.6.dylib", "libsubstrate.dylib",
+            "libhooker.dylib", "frida-agent.dylib", "libellekit.dylib",
+            "Choicy.dylib", "libroot.dylib", "Crane.dylib", "libsandy.dylib",
+            "Shadow.dylib", "libinjector.dylib", "HookKit.framework",
+            "RootBridge.framework", "Modulous.framework", "Shadow.framework", NULL
         };
         for (int i = 0; blacklist[i] != NULL; i++) {
             if (strstr(info->dli_fname, blacklist[i])) {
@@ -337,54 +322,12 @@ void hook_dladdr() {
     rebind_symbols(rebindings, 1);
 }
 
-/* 
-// If you prefer to use a MobileSubstrate hook for dladdr instead, you could use this:
-// (Be sure not to hook it twice.)
-static int replaced_dladdr(const void* addr, Dl_info* info) {
-    if (isCallerTweak()) {
-        return orig_dladdr(addr, info);
-    }
-    int result = orig_dladdr(addr, info);
-    if (result && info && info->dli_fname) {
-        static NSMutableSet *blacklistSet = nil;
-        if (!blacklistSet) {
-            blacklistSet = [NSMutableSet setWithObjects:
-                @"systemhook.dylib",
-                @"libstdc++.6.dylib",
-                @"libsubstrate.dylib",
-                @"libhooker.dylib",
-                @"frida-agent.dylib",
-                @"libellekit.dylib",
-                @"Choicy.dylib",
-                @"libroot.dylib",
-                @"Crane.dylib",
-                @"libsandy.dylib",
-                @"Shadow.dylib",
-                @"libinjector.dylib",
-                @"HookKit.framework",
-                @"RootBridge.framework",
-                @"Modulous.framework",
-                @"Shadow.framework",
-                nil];
-        }
-        NSString *fname = [NSString stringWithUTF8String:info->dli_fname];
-        if ([blacklistSet containsObject:fname]) {
-            info->dli_fname = "/usr/lib/libSystem.B.dylib";
-        }
-    }
-    return result;
-}
-
-void hook_dladdr_substrate() {
-    MSHookFunction(dladdr, replaced_dladdr, (void **)&orig_dladdr);
-}
-*/
-
 
 //------------------------------------------------------------------------------
 #pragma mark - task_info Hook
 
-static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t flavor, task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt) {
+static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t flavor,
+                                         task_info_t task_info_out, mach_msg_type_number_t *task_info_outCnt) {
     if (isCallerTweak()) {
         return original_task_info(target_task, flavor, task_info_out, task_info_outCnt);
     }
@@ -392,7 +335,6 @@ static kern_return_t replaced_task_info(task_name_t target_task, task_flavor_t f
     if (flavor == TASK_DYLD_INFO && result == KERN_SUCCESS) {
         struct task_dyld_info *task_info = (struct task_dyld_info *) task_info_out;
         struct dyld_all_image_infos *dyld_info = (struct dyld_all_image_infos *) task_info->all_image_info_addr;
-        // Fake a normal iOS response by limiting the number of reported images.
         dyld_info->infoArrayCount = 5;
         dyld_info->uuidArrayCount = 5;
         return KERN_SUCCESS;
@@ -472,22 +414,18 @@ void shadowhook_dyld_updatelibs_r(const struct mach_header* mh, intptr_t vmaddr_
 #pragma mark - Main Hook Setup Functions
 
 void shadowhook_dyld(HKSubstitutor* hooks) {
-    // Initialize our collections.
     _shdw_dyld_collection = [NSMutableArray new];
     _shdw_dyld_add_image = [NSMutableArray new];
     _shdw_dyld_remove_image = [NSMutableArray new];
     
-    // Register our add/remove image handlers.
     _dyld_register_func_for_add_image(shadowhook_dyld_updatelibs);
     _dyld_register_func_for_remove_image(shadowhook_dyld_updatelibs_r);
     
-    // Install our hooks.
     hook_dladdr();
     hook_dyld_image_name();
     hook_dyld_image_count();
     hook_task_info();
     
-    // Also use MobileSubstrate hooks where needed.
     MSHookFunction((void *)_dyld_get_image_name, (void *)replaced_dyld_get_image_name, (void **)&original_dyld_get_image_name);
     MSHookFunction(_dyld_image_count, replaced_dyld_image_count, (void **)&original_dyld_image_count);
     MSHookFunction(_dyld_get_image_header, replaced_dyld_get_image_header, (void **)&original_dyld_get_image_header);
@@ -496,7 +434,6 @@ void shadowhook_dyld(HKSubstitutor* hooks) {
     MSHookFunction(_dyld_register_func_for_remove_image, replaced_dyld_register_func_for_remove_image, (void **)&original_dyld_register_func_for_remove_image);
     MSHookFunction(task_info, replaced_task_info, (void **)&original_task_info);
     
-    // Hook dlopen_preflight using MSFindSymbol if available.
     void *p_dlopen_preflight = MSFindSymbol(MSGetImageByName("/usr/lib/system/libdyld.dylib"), "_dlopen_preflight");
     if (p_dlopen_preflight) {
         MSHookFunction(p_dlopen_preflight, replaced_dlopen_preflight, (void **)&original_dlopen_preflight);
@@ -527,12 +464,15 @@ void shadowhook_dyld_symlookup(HKSubstitutor* hooks) {
     MSHookFunction(dlsym, replaced_dlsym, (void **)&original_dlsym);
 }
 
-/*
-// If you want to hook dladdr using MobileSubstrate instead of fishhook,
-// comment out hook_dladdr() in shadowhook_dyld and use this instead:
+void shadowhook_dyld_symaddrlookup(HKSubstitutor* hooks) {
+    // Empty stub.
+    // If you wanted to hook dladdr using MobileSubstrate instead of Fishhook,
+    // you could implement that here. For now, do nothing.
+}
 
+/*
+// Alternatively, if you prefer a MobileSubstrate hook for dladdr:
 void shadowhook_dyld_symaddrlookup(HKSubstitutor* hooks) {
     MSHookFunction(dladdr, replaced_dladdr, (void **)&orig_dladdr);
 }
 */
-
